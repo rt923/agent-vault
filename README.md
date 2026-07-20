@@ -1,126 +1,126 @@
 ---
-title: 智能体产出知识库
+title: 可解釋性審計追蹤層
 date: 2026-07-20
 tags:
   - welcome
-  - index
+  - audit
+  - meta-peg-agent
 aliases:
-  - Agent Vault
-  - 智能体知识库
+  - Audit Trail
+  - 審計追蹤層
 cssclasses:
   - document
 ---
 
-# 🧠 智能体产出知识库
+# 可解釋性審計追蹤層
 
-> [!abstract] 欢迎
-> 这是一个专为 **本地智能体产出管理** 设计的 Obsidian 知识库。智能体的思考过程、中间产物和最终产出文件都会被自动归档于此，形成可追溯、可检索的知识体系。
-
----
-
-## 📂 目录结构
-
-```
-vault/
-├── _agent-output/          # 智能体产出通道
-│   ├── inbox/              # 接收区
-│   ├── archive/            # 归档区
-│   │   ├── reports/        # 报告
-│   │   ├── code/           # 代码
-│   │   ├── images/         # 图片
-│   │   └── data/           # 数据
-│   └── schemas/            # 元数据模板
-│
-├── _agent-sessions/        # 智能体会话（含思考链）
-│   ├── 2026-07/            # 按月分桶
-│   ├── _templates/         # 笔记模板
-│   └── _dashboards/        # 聚合看板
-│
-├── 本地智能体产出通道设计.md    # 设计方案 ①
-├── 智能体思考过程与产出物本地化存储方案.md  # 设计方案 ②
-└── README.md               # ← 当前页面
-```
+> [!abstract] 定位
+> 這是 **Meta-PEG-Agent** 的可解釋性審計追蹤層。
+>
+> 不是取代 `meta_peg_agent/` 內的既有機制，而是在其之上提供**一層可視化的歷史軌跡**——把閘門事件、自指提案、修復記錄、安全回歸結果聚合到 Obsidian 中，讓系統的「當下安全」延伸為「事後可追溯、可分析、可解釋」。
 
 ---
 
-## 🚀 快速开始
-
-### 1. 用 Obsidian 打开此目录
-
-在 Obsidian 中点击 **"打开本地文件夹"**，选择 `vault/` 目录即可。
-
-### 2. 了解设计方案
-
-| 文档 | 说明 |
-|------|------|
-| [[本地智能体产出通道设计]] | 产出物上传通道的架构设计（CLI / 监听器 / HTTP API） |
-| [[智能体思考过程与产出物本地化存储方案]] | 思考链（Trace）捕获与存储方案 |
-
-### 3. 让智能体开始写入
-
-智能体调用 `trace-session` 工具将推理过程和产出物写入此库：
-
-```bash
-# 智能体侧：开始一次会话
-trace-session start --session-id "session-20260720-001" --agent "代码助手"
-
-# 智能体侧：记录每步推理
-trace-session step --session-id "session-20260720-001" --step 1 --content "分析需求..."
-
-# 智能体侧：产出文件
-trace-session output --session-id "session-20260720-001" --file ./output.md
-
-# 智能体侧：结束会话
-trace-session finish --session-id "session-20260720-001"
-```
-
----
-
-## 🔗 快速链接
-
-- [[_agent-output/_index|📦 产出通道索引]]
-- [[_agent-sessions/_sessions-index|📋 会话索引]]
-- [[_agent-sessions/_dashboards/recent-sessions|📊 近期看板]]
-- [[_agent-sessions/_templates/session-template|📄 会话模板]]
-- [[_agent-sessions/_templates/trace-template|📄 思考链模板]]
-
----
-
-## 📐 架构一览
+## 與 meta-peg-agent 的關係
 
 ```mermaid
 graph TB
-    subgraph Agent["智能体"]
-        A[推理过程]
-        B[产出文件]
+    subgraph MPA["meta_peg_agent/"]
+        GATE[explainability_check.py<br/>閘門事件]
+        GUARD[guardrails_enforce.py<br/>只讀鎖狀態]
+        DRAFT[drafts/ 自指提案]
+        FIX[fix_reports/ 修復報告]
+        REGRESSION[run_safety_regression.py<br/>回歸結果]
     end
 
-    subgraph Channel["上传通道"]
-        C[CLI / Watcher / API]
-        D[校验与分类]
+    subgraph VAULT["agent-vault（本庫）"]
+        SYNC[sync-audit.sh<br/>同步腳本]
+        AUDIT[_audit/ 審計核心]
+        DB[_dashboards/ 聚合看板]
     end
 
-    subgraph Vault["Obsidian 知识库"]
-        E[_agent-sessions/]
-        F[_agent-output/]
-        G[设计文档]
-    end
+    MPA -->|sync-audit.sh 拉取| SYNC
+    SYNC -->|轉為 Obsidian 筆記| AUDIT
+    AUDIT -->|聚合| DB
+    DB -->|你透過 Obsidian 閱讀| 你
+```
 
-    A --> C
-    B --> C
-    C --> D
-    D --> E
-    D --> F
-    E --> G
-    F --> G
+> [!tip] 關鍵原則
+> 本 vault **唯讀**——只從 `meta_peg_agent/` 拉取數據，從不反向寫入。所有原始數據的權威來源仍是 `meta_peg_agent/` 工程本身。
+
+---
+
+## 目錄結構
+
+```
+vault/
+├── README.md                    ← 你正在看的歡迎頁
+├── 審計追蹤層架構設計.md          ← 本 vault 的設計文件
+├── _audit/                      ← 審計核心（自動填充）
+│   ├── _gate-events/            ← 閘門事件（從 logs/ 同步）
+│   │   ├── 2026-07/
+│   │   │   ├── gate-20260714-125558-PASS-20bceea9.md
+│   │   │   ├── gate-20260714-125600-REJECT-4f81d002.md
+│   │   │   └── gate-20260714-130852-REJECT-5d7cdda0.md
+│   │   └── _index.md            ← 閘門事件索引
+│   ├── _proposals/              ← 自指改寫提案（從 drafts/ 同步）
+│   │   ├── PEG-2026-07-13-001.md
+│   │   ├── self-modify-001.md
+│   │   └── _index.md            ← 提案索引
+│   ├── _fix-reports/            ← 修復報告（從 fix_reports/ 同步）
+│   │   ├── FIX-002-guardrails-readonly-windows.md
+│   │   └── _index.md            ← 修復報告索引
+│   └── _dashboards/             ← 聚合看板（自動生成）
+│       ├── gate-trends.md       ← 閘門趨勢：通過/拒絕率
+│       └── safety-posture.md    ← 安全態勢總覽
+├── _design/                     ← 設計文檔
+│   └── 審計追蹤層架構設計.md
+└── _scripts/                    ← 同步腳本
+    └── sync-audit.sh            ← 從 meta_peg_agent/ 拉取數據
 ```
 
 ---
 
-> [!tip] 提示
-> - 所有 `_` 前缀的目录和文件在 Obsidian 文件列表中会置顶显示
-> - 使用 `Ctrl+O`（Cmd+O）快速搜索笔记
-> - 使用 Graph View 查看笔记之间的关联关系
-> - 模板文件位于 `_agent-sessions/_templates/`，新建会话时可直接使用
+## 快速開始
 
-<!-- 本知识库由智能体自动生成并维护 -->
+### 前置條件
+
+- 你已經在 Obsidian 中打開了本 vault
+- `meta_peg_agent/` 在你的 Windows 上可訪問
+
+### 首次同步
+
+在 PowerShell 中執行：
+
+```powershell
+cd C:\Users\1\Documents\agent-vault
+bash _scripts/sync-audit.sh -s C:\Users\1\WorkBuddy\2026-07-13-11-57-54\meta_peg_agent
+```
+
+完成後回到 Obsidian，刷新檔案列表即可看到審計內容。
+
+### 日常使用
+
+每次 `meta_peg_agent/` 有新事件（閘門觸發、提案通過、回歸完成），執行一次同步即可在 Obsidian 中看到更新。
+
+---
+
+## 快速連結
+
+- [[_audit/_gate-events/_index|📋 閘門事件索引]]
+- [[_audit/_proposals/_index|📋 自指提案索引]]
+- [[_audit/_fix-reports/_index|📋 修復報告索引]]
+- [[_audit/_dashboards/gate-trends|📊 閘門趨勢看板]]
+- [[_audit/_dashboards/safety-posture|📊 安全態勢看板]]
+- [[審計追蹤層架構設計|📐 設計文件]]
+
+---
+
+## 設計原則
+
+1. **不可篡改**：原始數據的權威來源是 `meta_peg_agent/`，本 vault 只做聚合展示
+2. **可追溯**：每個事件都可追溯到原始 JSONL 記錄和源代碼位置
+3. **可分析**：看板自動計算通過率、趨勢、異常模式
+4. **零侵入**：不需要修改 `meta_peg_agent/` 的任何代碼
+
+<!-- 本 vault 由 TRAE Agent 設計，對齊 meta-peg-agent 工程架構 -->
