@@ -1,11 +1,8 @@
-﻿# sync-audit.ps1 — 從 meta_peg_agent/ 同步審計數據到 agent-vault
+# sync-audit.ps1 — 從 meta_peg_agent/ 同步審計數據到 agent-vault
 #
 # 用法:
-#   .\_scripts\sync-audit.ps1 -Source C:\path\to\meta_peg_agent
-#   .\_scripts\sync-audit.ps1 -Source C:\path\to\meta_peg_agent -OnlyGates
-#   .\_scripts\sync-audit.ps1 -Source C:\path\to\meta_peg_agent -OnlyProposals
-#   .\_scripts\sync-audit.ps1 -Source C:\path\to\meta_peg_agent -OnlyFixes
-#   .\_scripts\sync-audit.ps1 -Source C:\path\to\meta_peg_agent -OnlyDashboards
+#   .\_scripts\sync-audit.ps1 -Source "C:\path\to\meta_peg_agent"
+#   .\_scripts\sync-audit.ps1 -Source "C:\path\to\meta_peg_agent" -OnlyGates
 #
 # 依賴: Python 3（用於解析 JSONL 和計算聚合）
 
@@ -20,11 +17,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# ---- 設定路徑 ----
 $VaultDir = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
 $SourceDir = $Source
 $Mode = "all"
-
 if ($OnlyGates) { $Mode = "gates" }
 if ($OnlyProposals) { $Mode = "proposals" }
 if ($OnlyFixes) { $Mode = "fixes" }
@@ -38,33 +33,38 @@ try {
     try {
         $python = (Get-Command python -ErrorAction Stop).Source
     } catch {
-        Write-Host "❌ 錯誤: 找不到 python3 或 python，請先安裝 Python" -ForegroundColor Red
+        Write-Host "ERROR: Python not found. Please install Python 3." -ForegroundColor Red
         exit 1
     }
 }
 
-Write-Host "=== 同步審計數據 ===" -ForegroundColor Blue
-Write-Host "來源: $SourceDir"
-Write-Host "目標: $VaultDir"
-Write-Host "模式: $Mode"
+# 確認 python 可執行
+$pyVersion = & $python --version 2>&1
+Write-Host "Using: $pyVersion"
+
+Write-Host "=== Audit Sync ===" -ForegroundColor Blue
+Write-Host "Source: $SourceDir"
+Write-Host "Target: $VaultDir"
+Write-Host "Mode: $Mode"
 Write-Host ""
 
 # ---- 1. 同步閘門事件 ----
 function Sync-Gates {
-    Write-Host "[1/4] 同步閘門事件..." -ForegroundColor Green
+    Write-Host "[1/4] Syncing gate events..." -ForegroundColor Green
     $logsDir = Join-Path $SourceDir "logs"
     $gateDir = Join-Path $VaultDir "_audit\_gate-events"
 
     if (-not (Test-Path $logsDir)) {
-        Write-Host "  跳過：無 logs/ 目錄" -ForegroundColor Yellow
+        Write-Host "  Skip: no logs/ directory" -ForegroundColor Yellow
         return
     }
 
-    $pyScript = @"
+    $pyFile = Join-Path $env:TEMP "sync_gates.py"
+    @"
 import os, json, sys, hashlib
 
-logs_dir = os.path.abspath(r'$logsDir')
-gate_dir = os.path.abspath(r'$gateDir')
+logs_dir = r'$logsDir'
+gate_dir = r'$gateDir'
 
 if not os.path.isdir(logs_dir):
     sys.exit(0)
@@ -86,20 +86,20 @@ for fname in sorted(os.listdir(logs_dir)):
 
             parts = fname.replace('.jsonl', '').split('_')
             if len(parts) >= 6:
-                ts_part = f'{parts[1]}-{parts[2]}-{parts[3]}'
+                ts_part = parts[1] + '-' + parts[2] + '-' + parts[3]
                 verdict = parts[4]
                 file_hash = parts[5]
-                gate_id = f'gate-{parts[1]}{parts[2]}{parts[3]}-{verdict}-{file_hash[:8]}'
+                gate_id = 'gate-' + parts[1] + parts[2] + parts[3] + '-' + verdict + '-' + file_hash[:8]
             else:
-                gate_id = f'gate-{hashlib.md5(fname.encode()).hexdigest()[:12]}'
+                gate_id = 'gate-' + hashlib.md5(fname.encode()).hexdigest()[:12]
                 verdict = ev.get('verdict', 'UNKNOWN')
                 file_hash = ev.get('input_hash', 'unknown')
 
-            month = f'{ts_part[:4]}-{ts_part[4:6]}'
+            month = ts_part[:4] + '-' + ts_part[4:6]
             target_dir = os.path.join(gate_dir, month)
             os.makedirs(target_dir, exist_ok=True)
 
-            note_name = f'{gate_id}.md'
+            note_name = gate_id + '.md'
             note_path = os.path.join(target_dir, note_name)
 
             if os.path.exists(note_path):
@@ -111,7 +111,6 @@ for fname in sorted(os.listdir(logs_dir)):
             warn = summary.get('warn', 0)
             total = summary.get('total_alerts', 0)
             tags = ['gate-event', verdict]
-            preview = ev.get('input_preview', '')[:80]
 
             top_tags = set()
             for ic in interceptions:
@@ -122,83 +121,84 @@ for fname in sorted(os.listdir(logs_dir)):
                     tags.append(t)
 
             if verdict == 'PASS' and total == 0:
-                title = '閘門事件: PASS · 正常通過'
+                title = 'Gateway Event: PASS'
             else:
                 top_tag = sorted(top_tags)[0] if top_tags else 'unknown'
-                title = f'閘門事件: {verdict} · {top_tag}'
+                title = 'Gateway Event: ' + verdict + ' - ' + top_tag
 
             lines = []
             lines.append('---')
-            lines.append(f'title: "{title}"')
-            lines.append(f'gate_id: "{gate_id}"')
-            lines.append(f'timestamp: "{ev.get("timestamp", "")}"')
-            lines.append(f'verdict: {verdict}')
+            lines.append('title: ' + json.dumps(title))
+            lines.append('gate_id: ' + json.dumps(gate_id))
+            lines.append('timestamp: ' + json.dumps(ev.get('timestamp', '')))
+            lines.append('verdict: ' + verdict)
             lines.append('tags:')
             for t in sorted(tags):
-                lines.append(f'  - {t}')
-            lines.append(f'critical_count: {critical}')
-            lines.append(f'warn_count: {warn}')
-            lines.append(f'total_alerts: {total}')
-            lines.append(f'input_hash: "{file_hash}"')
-            lines.append(f'input_preview: "{ev.get("input_preview", "")[:60]}"')
-            lines.append(f'source: "{ev.get("source", "")}"')
-            lines.append(f'sync_from: "logs/{fname}"')
+                lines.append('  - ' + t)
+            lines.append('critical_count: ' + str(critical))
+            lines.append('warn_count: ' + str(warn))
+            lines.append('total_alerts: ' + str(total))
+            lines.append('input_hash: ' + json.dumps(file_hash))
+            lines.append('source: ' + json.dumps(ev.get('source', '')))
+            lines.append('sync_from: ' + json.dumps('logs/' + fname))
             lines.append('---')
             lines.append('')
-            lines.append(f'# 閘門事件: {"🔴" if verdict == "REJECT" else "🟢"} {verdict}')
+            icon = chr(128308) if verdict == 'REJECT' else chr(128994)
+            lines.append('# Gateway Event: ' + icon + ' ' + verdict)
             lines.append('')
 
             if verdict == 'REJECT':
-                lines.append(f'> [!danger] {total} 項{"CRITICAL" if critical > 0 else "WARN"}攔截')
-                lines.append('> 本次閘門調用拒絕了輸入，原因：')
-                lines.append('>')
+                sev_label = 'CRITICAL' if critical > 0 else 'WARN'
+                lines.append('> [!danger] ' + str(total) + ' ' + sev_label + ' Interception(s)')
+                lines.append('')
                 if interceptions:
-                    lines.append('| # | 嚴重級別 | 標籤 | 原因 | 片段 |')
-                    lines.append('|---|---------|------|------|------|')
+                    lines.append('| # | Severity | Tag | Reason | Snippet |')
+                    lines.append('|---|----------|-----|--------|---------|')
                     for i, ic in enumerate(interceptions, 1):
                         sev = ic.get('severity', 'UNKNOWN')
-                        sev_icon = '🔴' if sev == 'CRITICAL' else '🟡'
                         tag = ic.get('tag', '')
                         reason = ic.get('reason', '')
                         snippet = ic.get('snippet', '')
-                        lines.append(f'| {i} | {sev_icon} {sev} | {tag} | {reason} | {snippet} |')
+                        lines.append('| ' + str(i) + ' | ' + sev + ' | ' + tag + ' | ' + reason + ' | ' + snippet + ' |')
             else:
-                lines.append('> [!success] 通過')
-                lines.append('> 本次閘門調用未發現任何 CRITICAL 或 WARN 問題。')
+                lines.append('> [!success] Passed')
+                lines.append('> No CRITICAL or WARN issues found.')
                 lines.append('')
 
             lines.append('')
-            lines.append('## 原始記錄')
+            lines.append('## Raw Record')
             lines.append('')
             lines.append('```json')
-            lines.append(json.dumps({'timestamp': ev.get('timestamp',''), 'verdict': verdict, 'source': ev.get('source',''), 'input_hash': file_hash, 'summary': summary}, ensure_ascii=False))
+            record = {'timestamp': ev.get('timestamp',''), 'verdict': verdict, 'source': ev.get('source',''), 'input_hash': file_hash, 'summary': summary}
+            lines.append(json.dumps(record, ensure_ascii=False))
             lines.append('```')
             lines.append('')
-            lines.append(f'完整原始 JSONL 檔案：`meta_peg_agent/logs/{fname}`')
+            lines.append('Source file: meta_peg_agent/logs/' + fname)
 
             with open(note_path, 'w', encoding='utf-8') as f:
                 f.write('\n'.join(lines) + '\n')
 
             count += 1
-            print(f'  ✅ 已同步: {gate_id}')
+            print('  [OK] Synced: ' + gate_id)
 
 if count == 0:
-    print('  ℹ️  無新閘門事件')
+    print('  No new gate events')
 else:
-    print(f'  ✅ 共同步 {count} 個閘門事件')
-"@
+    print('  Synced ' + str(count) + ' gate events')
+"@ | Out-File -FilePath $pyFile -Encoding UTF8
 
-    & $python -c $pyScript
+    & $python $pyFile
+    Remove-Item $pyFile -Force -ErrorAction SilentlyContinue
 }
 
 # ---- 2. 同步提案 ----
 function Sync-Proposals {
-    Write-Host "[2/4] 同步自指提案..." -ForegroundColor Green
+    Write-Host "[2/4] Syncing proposals..." -ForegroundColor Green
     $draftsDir = Join-Path $SourceDir "drafts"
     $propsDir = Join-Path $VaultDir "_audit\_proposals"
 
     if (-not (Test-Path $draftsDir)) {
-        Write-Host "  跳過：無 drafts/ 目錄" -ForegroundColor Yellow
+        Write-Host "  Skip: no drafts/ directory" -ForegroundColor Yellow
         return
     }
 
@@ -207,26 +207,26 @@ function Sync-Proposals {
         $fname = $_.Name
         $target = Join-Path $propsDir $fname
         if (Test-Path $target) {
-            Write-Host "  ⏭️  已存在: $fname" -ForegroundColor Yellow
+            Write-Host "  [skip] Already exists: $fname" -ForegroundColor Yellow
             return
         }
         Copy-Item $_.FullName $target
-        Write-Host "  ✅ 已同步: $fname" -ForegroundColor Green
+        Write-Host "  [OK] Synced: $fname" -ForegroundColor Green
         $count++
     }
     if ($count -eq 0) {
-        Write-Host "  ℹ️  無新提案" -ForegroundColor Yellow
+        Write-Host "  No new proposals" -ForegroundColor Yellow
     }
 }
 
 # ---- 3. 同步修復報告 ----
 function Sync-Fixes {
-    Write-Host "[3/4] 同步修復報告..." -ForegroundColor Green
+    Write-Host "[3/4] Syncing fix reports..." -ForegroundColor Green
     $fixesDir = Join-Path $SourceDir "fix_reports"
     $targetDir = Join-Path $VaultDir "_audit\_fix-reports"
 
     if (-not (Test-Path $fixesDir)) {
-        Write-Host "  跳過：無 fix_reports/ 目錄" -ForegroundColor Yellow
+        Write-Host "  Skip: no fix_reports/ directory" -ForegroundColor Yellow
         return
     }
 
@@ -235,31 +235,32 @@ function Sync-Fixes {
         $fname = $_.Name
         $target = Join-Path $targetDir $fname
         if (Test-Path $target) {
-            Write-Host "  ⏭️  已存在: $fname" -ForegroundColor Yellow
+            Write-Host "  [skip] Already exists: $fname" -ForegroundColor Yellow
             return
         }
         Copy-Item $_.FullName $target
-        Write-Host "  ✅ 已同步: $fname" -ForegroundColor Green
+        Write-Host "  [OK] Synced: $fname" -ForegroundColor Green
         $count++
     }
     if ($count -eq 0) {
-        Write-Host "  ℹ️  無新修復報告" -ForegroundColor Yellow
+        Write-Host "  No new fix reports" -ForegroundColor Yellow
     }
 }
 
 # ---- 4. 更新看板 ----
 function Sync-Dashboards {
-    Write-Host "[4/4] 更新聚合看板..." -ForegroundColor Green
+    Write-Host "[4/4] Updating dashboards..." -ForegroundColor Green
     $gateDir = Join-Path $VaultDir "_audit\_gate-events"
     $dashDir = Join-Path $VaultDir "_audit\_dashboards"
 
-    $pyScript = @"
+    $pyFile = Join-Path $env:TEMP "sync_dashboards.py"
+    @"
 import os, json, re
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 
-gate_dir = os.path.abspath(r'$gateDir')
-dash_dir = os.path.abspath(r'$dashDir')
+gate_dir = r'$gateDir'
+dash_dir = r'$dashDir'
 
 events = []
 for root, dirs, files in os.walk(gate_dir):
@@ -286,10 +287,10 @@ for root, dirs, files in os.walk(gate_dir):
 total = len(events)
 pass_count = sum(1 for e in events if e.get('verdict') == 'PASS')
 reject_count = sum(1 for e in events if e.get('verdict') == 'REJECT')
-pass_rate = f'{pass_count/total*100:.1f}%' if total > 0 else '—'
+pass_rate = str(round(pass_count/total*100, 1)) + '%' if total > 0 else 'N/A'
 
 crit_vals = [int(e.get('critical_count', 0)) for e in events if e.get('critical_count')]
-avg_crit = f'{sum(crit_vals)/len(crit_vals):.1f}' if crit_vals else '0'
+avg_crit = str(round(sum(crit_vals)/len(crit_vals), 1)) if crit_vals else '0'
 
 tag_counter = Counter()
 for e in events:
@@ -314,120 +315,101 @@ for e in events:
     elif v == 'REJECT':
         daily[date_key]['reject'] += 1
 
-# 生成 gate-trends.md
-trend_lines = []
-trend_lines.append('---')
-trend_lines.append('title: 閘門趨勢看板')
-trend_lines.append('updated: ' + datetime.now(timezone.utc).strftime('%Y-%m-%d'))
-trend_lines.append('tags:')
-trend_lines.append('  - dashboard')
-trend_lines.append('  - gate-trends')
-trend_lines.append('  - audit')
-trend_lines.append('---')
-trend_lines.append('')
-trend_lines.append('# 閘門趨勢看板')
-trend_lines.append('')
-trend_lines.append('> [!info] 由 \`sync-audit.ps1\` 自動更新')
-trend_lines.append('> 匯總所有 \`explainability_check.py\` 閘門事件的統計趨勢。')
-trend_lines.append('')
-trend_lines.append('## 總體統計')
-trend_lines.append('')
-trend_lines.append('| 指標 | 數值 |')
-trend_lines.append('|------|------|')
-trend_lines.append(f'| 總事件數 | {total} |')
-trend_lines.append(f'| 通過 (PASS) | {pass_count} |')
-trend_lines.append(f'| 拒絕 (REJECT) | {reject_count} |')
-trend_lines.append(f'| **通過率** | **{pass_rate}** |')
-trend_lines.append(f'| 平均 Critical 數 | {avg_crit} |')
-trend_lines.append('')
-
-if tag_counter:
-    trend_lines.append('## 拒絕原因分佈')
-    trend_lines.append('')
-    trend_lines.append('pie')
-    trend_lines.append('    title 拒絕原因分佈')
-    for tag, count in tag_counter.most_common(5):
-        trend_lines.append(f'    \"{tag}\" : {count}')
-trend_lines.append('')
-
-trend_lines.append('## 按時間趨勢')
-trend_lines.append('')
-trend_lines.append('| 日期 | PASS | REJECT | 通過率 |')
-trend_lines.append('|------|------|--------|--------|')
-sorted_dates = sorted(daily.keys(), reverse=True)
-for d in sorted_dates:
+# ---- gate-trends.md ----
+trend = []
+trend.append('---')
+trend.append('title: Gate Event Trends')
+trend.append('updated: ' + datetime.now(timezone.utc).strftime('%Y-%m-%d'))
+trend.append('tags:')
+trend.append('  - dashboard')
+trend.append('  - gate-trends')
+trend.append('  - audit')
+trend.append('---')
+trend.append('')
+trend.append('# Gate Event Trends')
+trend.append('')
+trend.append('> [!info] Auto-updated by sync-audit.ps1')
+trend.append('')
+trend.append('## Summary')
+trend.append('')
+trend.append('| Metric | Value |')
+trend.append('|--------|-------|')
+trend.append('| Total Events | ' + str(total) + ' |')
+trend.append('| PASS | ' + str(pass_count) + ' |')
+trend.append('| REJECT | ' + str(reject_count) + ' |')
+trend.append('| **Pass Rate** | **' + pass_rate + '** |')
+trend.append('| Avg Critical | ' + avg_crit + ' |')
+trend.append('')
+trend.append('## Reject Reasons')
+trend.append('')
+for tag, count in tag_counter.most_common(5):
+    trend.append('- ' + tag + ': ' + str(count))
+trend.append('')
+trend.append('## Daily Trend')
+trend.append('')
+trend.append('| Date | PASS | REJECT | Pass Rate |')
+trend.append('|------|------|--------|-----------|')
+for d in sorted(daily.keys(), reverse=True):
     p = daily[d]['pass']
     r = daily[d]['reject']
-    rate = f'{p/(p+r)*100:.1f}%' if (p+r) > 0 else '—'
-    trend_lines.append(f'| {d} | {p} | {r} | {rate} |')
-trend_lines.append('')
-
-if tag_counter:
-    trend_lines.append('## 高頻攔截標籤')
-    trend_lines.append('')
-    trend_lines.append('| 標籤 | 出現次數 | 說明 |')
-    trend_lines.append('|------|---------|------|')
-    tag_desc = {
-        's13_tamper': '§13 篡改嘗試',
-        'coercion_urgency': '脅迫/利誘話術',
-        'embedded_instruction': '嵌入指令探針',
-        'ignore_previous': '忽略先前指令',
-        'role_spoof': '角色偽裝',
-        'disable_safety': '禁用安全機制',
-        'principle1_harm': '§13 原則一：不傷害',
-        'principle2_modify': '§13 原則二：不改底座',
-        'principle3_blackbox': '§13 原則三：可知性',
-    }
-    for tag, count in tag_counter.most_common(10):
-        desc = tag_desc.get(tag, '—')
-        trend_lines.append(f'| {tag} | {count} | {desc} |')
-trend_lines.append('')
+    rate = str(round(p/(p+r)*100, 1)) + '%' if (p+r) > 0 else 'N/A'
+    trend.append('| ' + d + ' | ' + str(p) + ' | ' + str(r) + ' | ' + rate + ' |')
+trend.append('')
+trend.append('## Related')
+trend.append('')
+trend.append('- [[_audit/_gate-events/_index|Gate Events Index]]')
+trend.append('- [[_audit/_dashboards/safety-posture|Safety Posture Dashboard]]')
 
 with open(os.path.join(dash_dir, 'gate-trends.md'), 'w', encoding='utf-8') as f:
-    f.write('\n'.join(trend_lines) + '\n')
-print('  ✅ 閘門趨勢看板已更新')
+    f.write('\n'.join(trend) + '\n')
+print('  [OK] gate-trends.md updated')
 
-# 生成 safety-posture.md
-posture_lines = []
-posture_lines.append('---')
-posture_lines.append('title: 安全態勢看板')
-posture_lines.append('updated: ' + datetime.now(timezone.utc).strftime('%Y-%m-%d'))
-posture_lines.append('tags:')
-posture_lines.append('  - dashboard')
-posture_lines.append('  - safety-posture')
-posture_lines.append('  - audit')
-posture_lines.append('---')
-posture_lines.append('')
-posture_lines.append('# 安全態勢看板')
-posture_lines.append('')
-posture_lines.append('> [!info] 由 \`sync-audit.ps1\` 自動更新')
-posture_lines.append('> Meta-PEG-Agent 當前安全態勢總覽。')
-posture_lines.append('')
-posture_lines.append('## 當前狀態')
-posture_lines.append('')
-posture_lines.append('| 指標 | 狀態 | 說明 |')
-posture_lines.append('|------|------|------|')
-posture_lines.append('| 🛡️ §13 只讀鎖 | ✅ 正常 | \`guardrails_enforce.py\` 保護正常 |')
-posture_lines.append('| 🚪 閘門系統 | ✅ 運行中 | \`explainability_check.py\` 可用 |')
-posture_lines.append('| 📋 安全回歸 | ✅ 10/10 | 最近一次回歸全部通過 |')
-posture_lines.append('| 📝 活躍提案 | 0 | 無進行中的自指提案 |')
-posture_lines.append('| 🔧 未解決修復 | 0 | 所有已知修復已完成 |')
-posture_lines.append('')
-posture_lines.append('## 最近活動（24h）')
-posture_lines.append('')
-posture_lines.append('| 時間 | 事件 | 結果 |')
-posture_lines.append('|------|------|------|')
-posture_lines.append('| — | 無近期活動 | — |')
+# ---- safety-posture.md ----
+posture = []
+posture.append('---')
+posture.append('title: Safety Posture')
+posture.append('updated: ' + datetime.now(timezone.utc).strftime('%Y-%m-%d'))
+posture.append('tags:')
+posture.append('  - dashboard')
+posture.append('  - safety-posture')
+posture.append('  - audit')
+posture.append('---')
+posture.append('')
+posture.append('# Safety Posture')
+posture.append('')
+posture.append('> [!info] Auto-updated by sync-audit.ps1')
+posture.append('')
+posture.append('## Current Status')
+posture.append('')
+posture.append('| Indicator | Status | Note |')
+posture.append('|-----------|--------|------|')
+posture.append('| S13 Readonly Lock | OK | guardrails_enforce.py active |')
+posture.append('| Gate System | OK | explainability_check.py available |')
+posture.append('| Safety Regression | OK | Last run: 10/10 |')
+posture.append('| Active Proposals | 0 | None in progress |')
+posture.append('| Open Fixes | 0 | All resolved |')
+posture.append('')
+posture.append('## Recent Activity')
+posture.append('')
+posture.append('| Time | Event | Result |')
+posture.append('|------|-------|--------|')
+posture.append('| - | No recent activity | - |')
+posture.append('')
+posture.append('## Related')
+posture.append('')
+posture.append('- [[_audit/_dashboards/gate-trends|Gate Event Trends]]')
+posture.append('- [[_audit/_gate-events/_index|Gate Events Index]]')
 
 with open(os.path.join(dash_dir, 'safety-posture.md'), 'w', encoding='utf-8') as f:
-    f.write('\n'.join(posture_lines) + '\n')
-print('  ✅ 安全態勢看板已更新')
-"@
+    f.write('\n'.join(posture) + '\n')
+print('  [OK] safety-posture.md updated')
+"@ | Out-File -FilePath $pyFile -Encoding UTF8
 
-    & $python -c $pyScript
+    & $python $pyFile
+    Remove-Item $pyFile -Force -ErrorAction SilentlyContinue
 }
 
-# ---- 主流程 ----
+# ---- Main ----
 switch ($Mode) {
     "gates" { Sync-Gates }
     "proposals" { Sync-Proposals }
