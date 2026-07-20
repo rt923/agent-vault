@@ -1,4 +1,4 @@
-# sync-audit.ps1 — 從 meta_peg_agent/ 同步審計數據到 agent-vault
+﻿# sync-audit.ps1 — 從 meta_peg_agent/ 同步審計數據到 agent-vault
 #
 # 用法:
 #   .\_scripts\sync-audit.ps1 -Source C:\path\to\meta_peg_agent
@@ -442,5 +442,5 @@ switch ($Mode) {
 }
 
 Write-Host ""
-Write-Host "=== 同步完成 ===" -ForegroundColor Green
-Write-Host "在 Obsidian 中按 Ctrl+R 重新整理檔案列表即可查看更新。"
+Write-Host "=== Sync Complete ===" -ForegroundColor Green
+Write-Host "Done. Press Ctrl+R in Obsidian to refresh."
