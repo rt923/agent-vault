@@ -1,0 +1,22 @@
+{
+  "alwaysUpdateLinks": true,
+  "attachmentFolderPath": "_agent-sessions",
+  "newFileLocation": "root",
+  "newFileFolderPath": "",
+  "promptDelete": false,
+  "showUnsupportedFiles": true,
+  "useMarkdownLinks": false,
+  "showFrontmatter": true,
+  "showLineNumber": false,
+  "spellcheck": true,
+  "strictLineBreaks": true,
+  "trashOption": "local",
+  "communityPluginSortOrder": "download",
+  "communityThemeSortOrder": "download",
+  "hotkeys": {},
+  "readableLineLength": true,
+  "rightToLeft": false,
+  "tabSize": 4,
+  "userIgnoreFilters": null,
+  "wordCount": true
+}

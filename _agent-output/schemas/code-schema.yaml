@@ -1,0 +1,16 @@
+# 代码类产出元数据模板
+# 复制此文件并填写字段，与产出文件一同上传
+
+agent_name: ""              # 必填：来源智能体名称
+agent_type: "coding"        # 智能体类型
+created: ""                 # 必填：产出时间 (ISO 8601)
+source_session: ""          # 来源会话ID
+file_type: "code"           # 文件类型
+tags: []                    # 标签列表
+confidence: 0.0             # 置信度 (0-1)
+task_id: ""                 # 关联任务ID
+description: ""             # 必填：产出描述
+language: ""                # 编程语言
+framework: ""               # 框架
+test_coverage: ""           # 测试覆盖率
+dependencies: []            # 依赖清单
