@@ -11,15 +11,32 @@ aliases:
 cssclasses:
   - document
 status: stable
-version: 1.0
+version: 1.1
 related:
   - "[[審計追蹤層架構設計]]"
+  - "[[智能体思考过程与产出物本地化存储方案]]"
 ---
 
 # TRAE 交付標準作業程序
 
 > [!abstract] 用途
-> 當 TRAE 告知「已推送到 `trae-delivery` 分支」時，WorkBuddy 按此 SOP 執行取檔、驗證、推送。
+> 當 TRAE 告知「已推送到 `trae-delivery` 分支」時，WorkBuddy 按此 SOP 執行取檔、驗證、推送。完成後 Obsidian 即可讀取最新產出物。
+
+---
+
+## 信號鏈（你何時能看到什麼）
+
+```
+TRAE 說「已推送 trae-delivery」 → 你收到通知，但 Obsidian 尚未更新
+                                  ↓
+WorkBuddy 執行 ①~⑤           → 文件進 master，但你的硬碟尚未更新
+                                  ↓
+WorkBuddy 執行 ⑥ git pull     → 文件落本機 C:\Users\1\Documents\agent-vault\
+                                  ↓
+Obsidian 重新載入儲存庫          → 你可在關聯圖/檔案總管中看到最新產出物
+```
+
+> **關鍵信號：** 當 TRAE 說「已推送」時，檔案還沒到。當 WorkBuddy 回報「⑥ 完成」時，切換到 Obsidian 視窗，**關聯圖檢視重新整理**（Ctrl/Cmd + P → "重新載入" 或關閉重開）即可看到最新內容。
 
 ---
 
@@ -63,6 +80,12 @@ git -c core.quotepath=false diff --stat master origin/trae-delivery
 # ═══════════════════════════════════════════════
 #    git push origin --delete trae-delivery
 #    注意：本地無此分支，不執行 git branch -d
+
+# ═══════════════════════════════════════════════
+# ⑥ 拉取到本機 + Obsidian 就緒
+# ═══════════════════════════════════════════════
+#    git pull origin master
+#    完成後切換到 Obsidian，關聯圖檢視重新整理即可看到最新內容
 ```
 
 ---
@@ -94,6 +117,9 @@ git push origin master
 
 # ⑤ 清理
 git push origin --delete trae-delivery
+
+# ⑥ 拉取到本機（Obsidian 刷新後即可讀取）
+git pull origin master
 ```
 
 ### 情境二：零更新（兩端一致）
@@ -105,6 +131,7 @@ git -c core.quotepath=false diff --stat master origin/trae-delivery
 
 # → 無動作，直接清理
 git push origin --delete trae-delivery
+# 無需 git pull（master 未變，Obsidian 內容不變）
 ```
 
 ### 情境三：多份文件更新
@@ -121,6 +148,9 @@ git add "文件A.md" "文件B.md"
 git commit -m "docs(vault): 批量交付 (TRAE)"
 git push origin master
 git push origin --delete trae-delivery
+
+# ⑥ 拉取到本機（Obsidian 刷新後即可讀取）
+git pull origin master
 ```
 
 ---
@@ -138,4 +168,5 @@ git push origin --delete trae-delivery
 %% 變更記錄 %%
 
 **變更記錄**
+- 2026-07-21：v1.1 新增信號鏈 + 第⑥步 git pull——明確 TRAE 推送→WorkBuddy 執行→Obsidian 就緒的完整信號鏈
 - 2026-07-21：v1.0 初始版本，定義 TRAE 交付標準作業程序
