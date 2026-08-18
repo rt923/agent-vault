@@ -21,6 +21,7 @@ related:
 
 > [!abstract] 用途
 > 當 TRAE 告知「已推送到 `trae-delivery` 分支」時，WorkBuddy 按此 SOP 執行取檔、驗證、推送。完成後 Obsidian 即可讀取最新產出物。
+> 本 SOP 即 Hermes《長期記憶與人格邊界訓練原則》第④層 **Shadow Training** 的工程實現：upstream(TRAE) → mirror(GitHub) → review(②③) → shadow(regression) → human approve(用戶) → main(master)。
 
 ---
 
@@ -170,3 +171,4 @@ git pull origin master
 **變更記錄**
 - 2026-07-21：v1.1 新增信號鏈 + 第⑥步 git pull——明確 TRAE 推送→WorkBuddy 執行→Obsidian 就緒的完整信號鏈
 - 2026-07-21：v1.0 初始版本，定義 TRAE 交付標準作業程序
+- 2026-08-18：加 Shadow Training 理論依據互指（Hermes《長期記憶與人格邊界訓練原則》第④層）——本 SOP 即 upstream→mirror→review→shadow→human approve→main 的工程實現
