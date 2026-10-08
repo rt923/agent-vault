@@ -60,6 +60,10 @@ DEFAULT_SOURCE = r"C:\Users\1\WorkBuddy\2026-07-13-11-57-54\meta_peg_agent\_outb
 DEFAULT_VAULT  = r"C:\Users\1\Documents\agent-vault"
 DEFAULT_EXPLAIN = r"C:\Users\1\WorkBuddy\2026-07-13-11-57-54\meta_peg_agent\explainability_check.py"
 
+# §4.5 版本治理开关（默认启用）
+VERSION_GOVERNANCE_ENABLED = True
+SUPERSEDED_SUBDIR = "_superseded"
+
 FILE_TYPES = {"report", "code", "image", "data", "note", "config"}
 REQUIRED_META = ("agent_name", "created", "file_type", "description")
 
@@ -281,6 +285,60 @@ def process_pair(md_path: Path, meta_path: Path, args, cfg) -> str:
         dest_dir.mkdir(parents=True, exist_ok=True)
     dest_file = dest_dir / md_path.name
 
+    # §4.5 版本治理：同 source_relpath + 不同 sha256 → 旧版走 _superseded/
+    # 优先按源路径去重（更精确），fallback 到同名文件
+    if VERSION_GOVERNANCE_ENABLED and not args.dry_run:
+        new_relpath = str(meta.get("source_relpath", "")).strip()
+        existing_collision = None
+        if new_relpath:
+            for cand in dest_dir.glob("*.md"):
+                if cand.stem == dest_file.stem and cand.name == dest_file.name:
+                    continue
+                try:
+                    cand_fm, _ = parse_frontmatter(cand.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                if str(cand_fm.get("source_relpath", "")).strip() == new_relpath:
+                    existing_collision = cand
+                    break
+        # fallback: 同名
+        if existing_collision is None and dest_file.exists():
+            existing_collision = dest_file
+
+        if existing_collision is not None and existing_collision.exists():
+            try:
+                existing_text = existing_collision.read_text(encoding="utf-8")
+                existing_fm, _ = parse_frontmatter(existing_text)
+                existing_sha = str(existing_fm.get("source_sha256", "")).strip()
+                new_sha = str(meta.get("source_sha256", "")).strip()
+                if existing_sha and new_sha and existing_sha == new_sha:
+                    if verbose:
+                        print(f"    [§4.5-idempotent] {name}: 同 sha256，跳过")
+                    _move_to(src / "_done" / name, md_path, meta_path)
+                    return "done:duplicate"
+                # 同源路径/同名不同内容 → 旧版挪 _superseded/
+                superseded_dir = dest_dir / SUPERSEDED_SUBDIR
+                superseded_dir.mkdir(parents=True, exist_ok=True)
+                old_meta = dict(existing_fm)
+                old_meta["superseded_at"] = datetime.now().isoformat(timespec="seconds")
+                old_meta["superseded_by"] = md_path.name
+                body_idx = existing_text.find("\n---", 4)
+                old_body = existing_text[body_idx + 4:] if body_idx >= 0 else ""
+                # 重写现有文件、补 superseded 标记到 _superseded/
+                new_existing_text = emit_frontmatter(old_meta) + old_body
+                shutil.move(str(existing_collision), str(superseded_dir / existing_collision.name))
+                # 找 sidecar
+                stem = existing_collision.stem
+                for cand in dest_dir.glob("*.meta.md"):
+                    if cand.stem == stem or cand.name == stem + ".meta.md":
+                        shutil.move(str(cand), str(superseded_dir / cand.name))
+                        break
+                if verbose:
+                    print(f"    [§4.5-superseded] 旧版 → {superseded_dir.name}/{existing_collision.name}")
+            except Exception as e:
+                if verbose:
+                    print(f"    [§4.5-warn] {name}: 版本治理异常 {e}")
+
     # 6) 元数据嵌入 + 写出
     if is_md:
         _, body = parse_frontmatter(content)
@@ -289,6 +347,41 @@ def process_pair(md_path: Path, meta_path: Path, args, cfg) -> str:
         merged.update(existing_fm)  # 输出自身 frontmatter 优先
         merged["bridged_at"] = datetime.now().isoformat(timespec="seconds")
         merged["source_outbox"] = str(md_path)
+        # §4.5: 写入 supersedes 反链（按 source_relpath 匹配，因为文件路径可能不同）
+        new_supersedes = str(merged.get("supersedes", "null")).strip()
+        if new_supersedes != "null" and new_supersedes != "":
+            target_supersedes = None
+            # 先试直接文件名
+            candidate = dest_dir / new_supersedes
+            if candidate.exists():
+                target_supersedes = candidate
+            else:
+                # 按 source_relpath 扫
+                for cand in dest_dir.glob("*.md"):
+                    if cand.stem.endswith(".meta") or cand.name == "_index.md":
+                        continue
+                    try:
+                        cand_fm, _ = parse_frontmatter(cand.read_text(encoding="utf-8"))
+                    except Exception:
+                        continue
+                    if str(cand_fm.get("source_relpath", "")).strip() == new_supersedes:
+                        target_supersedes = cand
+                        break
+            if target_supersedes is not None:
+                try:
+                    old_text = target_supersedes.read_text(encoding="utf-8")
+                    old_meta, _ = parse_frontmatter(old_text)
+                    if not old_meta.get("superseded_by"):
+                        old_meta["superseded_by"] = md_path.name
+                        old_meta["superseded_at"] = datetime.now().isoformat(timespec="seconds")
+                        body_idx = old_text.find("\n---", 4)
+                        old_body = old_text[body_idx + 4:] if body_idx >= 0 else ""
+                        target_supersedes.write_text(emit_frontmatter(old_meta) + old_body, encoding="utf-8")
+                        if verbose:
+                            print(f"    [§4.5-supersedes-link] {target_supersedes.name} → superseded_by={md_path.name}")
+                except Exception as e:
+                    if verbose:
+                        print(f"    [§4.5-supersedes-link] {name}: 写 superseded_by 异常 {e}")
         new_content = emit_frontmatter(merged) + (body if body.startswith("\n") else "\n" + body)
         if not args.dry_run:
             dest_file.write_text(new_content, encoding="utf-8")
