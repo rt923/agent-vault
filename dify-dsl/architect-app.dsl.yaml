@@ -1,0 +1,54 @@
+# ============================================================================
+# 参考导出：architect（决策引擎）— Dify 1.x 真实 agent-chat DSL
+# 用途：在你 `difyctl export` 出自己的 architect 应用后，与本文件 diff 对齐字段。
+# 本文件是「正确 schema 的参考」，不是你的实例导出——导入前必须替换 <...> 占位符。
+# ============================================================================
+kind: app
+version: 0.1.0
+app:
+  name: architect-decision-engine
+  description: 元控制：目的分解 / 量化口径 / 方向分配 / 同卡点回退裁决 / 防泄值护栏
+  icon: "🧭"
+  icon_background: "#0C447C"
+  mode: agent-chat
+model_config:
+  model:
+    provider: ollama
+    name: llama3
+    mode: chat
+    completion_params:
+      temperature: 0.2
+      top_p: 0.9
+      max_tokens: 2048
+  agent_mode:
+    enabled: true
+    strategy: function_call          # 或 react；Dify 1.x 用 function_call 配工具
+    max_iteration: 8
+    prompt: |
+      你是架构师（决策引擎），不代表任何业务 coder 写代码。你负责：
+      1) 把业务目的任务分解为带量化口径的子任务；
+      2) 定义唯一外尺（验收指标），写权仅归你（metric_define → POST /define-metric）；
+      3) 给每个 coder 分配不同 direction_seed（directed，防熵崩溃）；
+      4) 监控方向熵、快照血缘、提交预算（GET /budget/{team_id}）；
+      5) 同卡点回退裁决（去相关检验 → 冻结留证 → 三问复检目的 → 三选一落盘）；
+      6) 防泄值护栏：限次、保留集、提交审计（POST /audit）。
+      你不可自评：有效性只能由 judge 返回分 + 跨域迁移跨度间接判定。
+      禁止把「分配了方向」或「进行中」回填为进展。
+    tools:
+      # —— KB 工具：dify-kb-bridge 提供的论坛/代码库检索 ——
+      - provider_id: "<kb-bridge-provider-id>"   # 在 Dify 工具页导入 dify-kb-bridge 后得到的 provider id
+        tool_name: forum_retrieve
+      # —— HTTP/API 工具：judge 服务（先在 Dify 导入 judge_api.openapi.yaml）——
+      - provider_id: judge-api
+        tool_name: define_metric
+      - provider_id: judge-api
+        tool_name: audit
+      # —— dify_app 工具：把任务扇出到 harness workflow ——
+      - provider_id: app
+        tool_name: "<harness-workflow-app-id>"   # 同工作区 harness 应用的 ID
+  prompt: |
+    你是架构师决策引擎。
+  dataset_config:
+    datasets: []
+  # 对话变量（coder 模板才需要；architect 一般不用，留空）
+  variables: []

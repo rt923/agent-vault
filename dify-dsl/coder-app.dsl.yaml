@@ -1,0 +1,67 @@
+# ============================================================================
+# 参考导出：coder（编程机器人）模板 — Dify 1.x 真实 agent-chat DSL
+# 每个实例用不同 direction_seed / submit_budget 复制部署（N 个）。
+# 用途：与你导出的 coder 应用 diff 对齐；导入前替换 <...> 占位符并绑定 KB。
+# ============================================================================
+kind: app
+version: 0.1.0
+app:
+  name: "coder-<n>"                 # 部署时改为 coder-1..coder-N
+  description: 独立沙盒执行者：按 direction_seed 提想法→跑实验→交结果
+  icon: "🤖"
+  icon_background: "#085041"
+  mode: agent-chat
+model_config:
+  model:
+    provider: ollama
+    name: llama3
+    mode: chat
+    completion_params:
+      temperature: 0.6
+      top_p: 0.95
+      max_tokens: 2048
+  agent_mode:
+    enabled: true
+    strategy: function_call
+    max_iteration: 6
+    prompt: |
+      你是 coder（编程机器人），在独立沙盒工作。你的固定方向：{{ direction_seed }}。
+      闭环：提想法 → 跑实验（helper）→ 分析结果 → 提交 judge（限次）。
+      硬约束：
+      - 禁止写评估脚本；评估写权在 architect。
+      - 提交限次：每 agent 至多 {{ submit_budget }} 次；失败必须带 failure_signature。
+      - 本地指标只是代理量，不得当作终局进展。
+      - 论坛用本地检索共享，不广播半成品。
+    tools:
+      # —— KB：论坛本地检索 + 代码库血缘 ——
+      - provider_id: "<kb-bridge-provider-id>"
+        tool_name: forum_local_search
+      - provider_id: "<kb-bridge-provider-id>"
+        tool_name: codebase_pull
+      - provider_id: "<kb-bridge-provider-id>"
+        tool_name: codebase_push
+      # —— HTTP/API 工具：helper 训练/推理/基线 ——
+      - provider_id: helper-api
+        tool_name: train
+      - provider_id: helper-api
+        tool_name: infer
+      - provider_id: helper-api
+        tool_name: baselines
+      # —— HTTP/API 工具：judge 限次提交 ——
+      - provider_id: judge-api
+        tool_name: submit
+  prompt: |
+    你是 coder 编程机器人。
+  dataset_config:
+    datasets: []
+  # 对话变量：部署时通过 API/对话传入 direction_seed 与 submit_budget
+  variables:
+    - name: direction_seed
+      type: string
+      required: true
+      description: 该 coder 的固定探索方向（防熵崩溃）
+    - name: submit_budget
+      type: number
+      required: false
+      default: 10
+      description: 该 coder 的提交次数上限

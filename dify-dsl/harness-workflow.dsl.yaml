@@ -1,0 +1,171 @@
+# ============================================================================
+# 参考导出：harness workflow — Dify 1.x 真实 workflow DSL
+# 并行扇出到 N 个 coder 应用，汇聚后经 judge /aggregate 回传 architect。
+# 用途：与你导出的 harness 应用 diff 对齐；导入前替换 <coder-*-app-id>。
+# 真并行：Dify 1.x 用 workflow 节点天然并发（无显式并行网关也并行），
+#         但若要强约束并行可用 parallel-branch / iteration 节点包裹。
+# ============================================================================
+kind: app
+version: 0.1.0
+app:
+  name: harness-fanout
+  description: 把 direction_assignments 并行派发给 N 个 coder 应用并汇聚
+  mode: workflow
+workflow:
+  features:
+    retriever_resource:
+      enabled: false
+    file_upload:
+      enabled: false
+    conversation_variables:
+      enabled: false
+    error_strategy:
+      enabled: false
+  graph:
+    edges:
+      - source: start
+        target: coder-1
+      - source: start
+        target: coder-2
+      - source: start
+        target: coder-3
+      - source: start
+        target: coder-4
+      - source: coder-1
+        target: gather
+      - source: coder-2
+        target: gather
+      - source: coder-3
+        target: gather
+      - source: coder-4
+        target: gather
+      - source: gather
+        target: validator
+      - source: validator
+        target: end
+    nodes:
+      - id: start
+        position:
+          x: 80
+          y: 300
+        data:
+          type: start
+          title: 开始
+          desc: 接收 purpose / direction_assignments / metric_def / submit_budget
+          selected: true
+          variables:
+            - variable: purpose
+              type: string
+              label: purpose
+              description: 业务目的
+              form_property_type: text-input
+            - variable: direction_assignments
+              type: array[object]
+              label: direction_assignments
+              description: 每个 coder 的方向种子与快照血缘
+            - variable: metric_def
+              type: object
+              label: metric_def
+              description: architect 定义的外尺
+            - variable: submit_budget
+              type: number
+              label: submit_budget
+              description: 每 coder 提交预算
+      - id: coder-1
+        position:
+          x: 360
+          y: 120
+        data:
+          type: tool
+          title: coder-1
+          desc: 调用 coder-1 应用（dify_app 工具）
+          selected: true
+          provider_name: dify
+          provider_id: app
+          tool_name: "<coder-1-app-id>"
+          tool_configs: {}
+          inputs:
+            direction_seed: "{{ start.direction_assignments[0].seed }}"
+            submit_budget: "{{ start.submit_budget }}"
+      - id: coder-2
+        position:
+          x: 360
+          y: 260
+        data:
+          type: tool
+          title: coder-2
+          desc: 调用 coder-2 应用
+          selected: true
+          provider_name: dify
+          provider_id: app
+          tool_name: "<coder-2-app-id>"
+          tool_configs: {}
+          inputs:
+            direction_seed: "{{ start.direction_assignments[1].seed }}"
+            submit_budget: "{{ start.submit_budget }}"
+      - id: coder-3
+        position:
+          x: 360
+          y: 400
+        data:
+          type: tool
+          title: coder-3
+          desc: 调用 coder-3 应用
+          selected: true
+          provider_name: dify
+          provider_id: app
+          tool_name: "<coder-3-app-id>"
+          tool_configs: {}
+          inputs:
+            direction_seed: "{{ start.direction_assignments[2].seed }}"
+            submit_budget: "{{ start.submit_budget }}"
+      - id: coder-4
+        position:
+          x: 360
+          y: 540
+        data:
+          type: tool
+          title: coder-4
+          desc: 调用 coder-4 应用
+          selected: true
+          provider_name: dify
+          provider_id: app
+          tool_name: "<coder-4-app-id>"
+          tool_configs: {}
+          inputs:
+            direction_seed: "{{ start.direction_assignments[3].seed }}"
+            submit_budget: "{{ start.submit_budget }}"
+      - id: gather
+        position:
+          x: 640
+          y: 320
+        data:
+          type: answer
+          title: 直接回复
+          desc: 汇聚 N 路 coder 输出，拼接为 merged predictions
+          selected: true
+      - id: validator
+        position:
+          x: 880
+          y: 320
+        data:
+          type: tool
+          title: judge-aggregate
+          desc: 调用 judge /aggregate 计算沙盒汇总分
+          selected: true
+          provider_name: judge-api
+          provider_id: judge-api
+          tool_name: aggregate
+          tool_configs: {}
+          inputs:
+            team_id: "{{ start.purpose }}"
+            predictions: "{{ gather.merged_predictions }}"
+      - id: end
+        position:
+          x: 1120
+          y: 320
+        data:
+          type: end
+          title: 结束
+          desc: 输出 validator 的 aggregate_score
+          selected: true
