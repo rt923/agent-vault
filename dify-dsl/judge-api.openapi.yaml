@@ -1,0 +1,209 @@
+openapi: 3.0.1
+info:
+  title: judge-service
+  description: >
+    Dify 多智能体拓扑的唯一外尺。architect 经 HTTP 调用给 coder 提交打分；
+    coder 不直连 judge。本规范导入 Dify 作为「API 工具提供商」（provider id = judge-api）。
+  version: 0.2.0
+servers:
+  - url: "{{ env.JUDGE_URL }}"   # 导入后在 Dify 工具配置里填真实 base url，例如 http://judge.svc:8787
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      summary: 存活检查
+      operationId: health
+      security: []
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+  /submit:
+    post:
+      summary: coder 提交单条沙盒预测（限次，扣 1 budget）
+      operationId: submit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [team_id, coder_id, example_id, prediction]
+              properties:
+                team_id: { type: string }
+                coder_id: { type: string }
+                example_id: { type: string }
+                prediction: {}   # 类型随任务（分类为整数类 id）
+      responses:
+        "200":
+          description: 打分结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  example_id: { type: string }
+                  prediction: {}
+                  score: { type: number }
+                  correct: { type: boolean }
+                  remaining_team_budget: { type: integer }
+                  remaining_coder_budget: { type: integer, nullable: true }
+        "404":
+          description: 保留集/未知 example，统一不泄露归属
+        "429":
+          description: 提交预算耗尽，不评分
+  /budget/{team_id}:
+    get:
+      summary: 查询团队剩余 budget
+      operationId: budget
+      parameters:
+        - name: team_id
+          in: path
+          required: true
+          schema: { type: string }
+      security: []
+      responses:
+        "200":
+          description: 预算快照
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  team_id: { type: string }
+                  total_budget: { type: integer }
+                  used: { type: integer }
+                  remaining: { type: integer }
+                  per_coder_cap: { type: integer, nullable: true }
+  /define-metric:
+    post:
+      summary: architect 定义唯一外尺（sole write-right）
+      operationId: define_metric
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [team_id, metric_name]
+              properties:
+                team_id: { type: string }
+                metric_name: { type: string, enum: [accuracy, macro_f1] }
+                params: { type: object, description: 'e.g. {"k": 6} for macro_f1' }
+      responses:
+        "200":
+          description: 已激活
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  team_id: { type: string }
+                  metric_name: { type: string }
+                  params: { type: object }
+                  active: { type: boolean }
+  /aggregate:
+    post:
+      summary: harness 汇聚 N coder 沙盒结果（不扣 budget）
+      operationId: aggregate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [team_id, predictions]
+              properties:
+                team_id: { type: string }
+                predictions:
+                  type: object
+                  additionalProperties: {}
+                  description: "example_id -> prediction"
+                coder_ids:
+                  type: array
+                  items: { type: string }
+      responses:
+        "200":
+          description: 沙盒汇总分
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  team_id: { type: string }
+                  aggregate_score: { type: number }
+                  n_examples: { type: integer }
+  /evaluate:
+    post:
+      summary: architect 在保留集终评（不扣 budget）
+      operationId: evaluate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [team_id, predictions]
+              properties:
+                team_id: { type: string }
+                predictions:
+                  type: object
+                  additionalProperties: {}
+                  description: "所有保留集 example_id -> prediction；缺失计为错"
+      responses:
+        "200":
+          description: 保留集分
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  team_id: { type: string }
+                  holdout_score: { type: number }
+                  n_examples: { type: integer }
+                  missing:
+                    type: array
+                    items: { type: string }
+  /audit:
+    post:
+      summary: architect 拉审计报告（翻转/超额标记）
+      operationId: audit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [team_id]
+              properties:
+                team_id: { type: string }
+      responses:
+        "200":
+          description: 审计报告
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  team_id: { type: string }
+                  total_submissions: { type: integer }
+                  distinct_examples: { type: integer }
+                  flags:
+                    type: array
+                    items:
+                      type: object
+                  entries:
+                    type: array
+                    items: { type: object }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
