@@ -1,0 +1,139 @@
+openapi: 3.0.1
+info:
+  title: helper-api
+  description: |
+    coder（agent-chat, app_id 8b1cb0d5）model-config 引用的 provider_id=helper-api 的契约 spec
+    （issue #52，依据 _design/helper-api-spec-brief.md 起草）。
+
+    契约先行声明：
+    - 本文件仅是 API 契约（绑定相邻交付物，类比 kb_bridge.openapi.yaml）。
+      helper-api 服务尚无实现代码；未部署前，Dify 里 3 个工具调用必失败（见 brief 范围说明）。
+    - 语义字段全部标注【开放问题】，须用户拍板后固化为 v0.2——本版不臆造业务语义。
+    - Dify 注册时 provider 名必须为 helper-api（与 coder DSL provider_id 严格一致）；
+      base url 由 WorkBuddy 替换为 http://host.docker.internal:<port>。
+    - 工具名 train / infer / baselines 与 coder DSL 引用严格一致，不得改名。
+
+    【开放问题清单】（来自 brief，待用户定义后固化 schema）
+    OQ-1 train：训练什么模型？数据源（哪个 Dify dataset/库）？触发方式（全量/增量）？产出落点？
+    OQ-2 infer：输入是什么（user/item/context）？返回什么（推荐列表/分数/Shapley 归因）？
+    OQ-3 baselines：与哪些基线对比？指标（AUC/NDCG/增益）？返回结构？
+    OQ-4 服务形态：跑在哪（独立容器/k3d 内/宿主）？端口？是否已有实现代码？
+  version: 0.1.0
+servers:
+  - url: "{{ env.HELPER_API_URL }}"   # 注册时由 WorkBuddy 替换为 http://host.docker.internal:<port>
+security: []
+paths:
+  /train:
+    post:
+      summary: 启动一次训练（契约占位，语义见 OQ-1）
+      operationId: helper_train
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [task_id]
+              properties:
+                task_id:
+                  type: string
+                  description: 任务标识（对齐 judge 的 team_id 维度）
+                dataset_id:
+                  type: string
+                  description: "【开放问题 OQ-1】训练数据源：哪个 Dify dataset / 本地库"
+                mode:
+                  type: string
+                  enum: [full, incremental]
+                  description: "【开放问题 OQ-1】触发方式：全量/增量"
+                config:
+                  type: object
+                  description: "【开放问题 OQ-1】训练超参/模型选型，结构待定"
+      responses:
+        "200":
+          description: 已受理
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  run_id:
+                    type: string
+                    description: 训练运行 id
+                  status:
+                    type: string
+                    description: 受理状态（queued/running/failed）
+        "400":
+          description: 参数不合法
+  /infer:
+    post:
+      summary: 执行一次推理（契约占位，语义见 OQ-2）
+      operationId: helper_infer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [inputs]
+              properties:
+                run_id:
+                  type: string
+                  description: 可选，指定训练产物；缺省用当前最新
+                inputs:
+                  type: array
+                  items: {}
+                  description: "【开放问题 OQ-2】推理输入（user/item/context？）结构待定"
+      responses:
+        "200":
+          description: 推理结果
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  outputs:
+                    type: array
+                    items: {}
+                    description: "【开放问题 OQ-2】返回结构（推荐列表/分数/Shapley 归因？）待定"
+        "400":
+          description: 参数不合法
+  /baselines:
+    post:
+      summary: 取基线对比（契约占位，语义见 OQ-3）
+      operationId: helper_baselines
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                task_id:
+                  type: string
+                  description: 任务标识；缺省返回全部
+                metrics:
+                  type: array
+                  items: { type: string }
+                  description: "【开放问题 OQ-3】指标过滤（AUC/NDCG/增益？）待定"
+      responses:
+        "200":
+          description: 基线列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  baselines:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                          description: 基线名
+                        metric:
+                          type: string
+                          description: "【开放问题 OQ-3】指标名"
+                        value:
+                          type: number
+                          description: 指标值
