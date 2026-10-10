@@ -1,0 +1,75 @@
+# helper-api v0.1 - k3d (k3d-fresh-env) deployment
+# OQ-4: namespace dify, Deployment + ClusterIP Service,
+#       container 8799, NodePort 30799.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dify
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: helper-api
+  namespace: dify
+  labels:
+    app: helper-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: helper-api
+  template:
+    metadata:
+      labels:
+        app: helper-api
+    spec:
+      containers:
+        - name: helper-api
+          image: helper-api:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8799
+          env:
+            - name: HELPER_MODELS_DIR
+              value: /models
+            - name: HELPER_PORT
+              value: "8799"
+            - name: HELPER_DATA_SOURCE
+              value: local
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8799
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8799
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          volumeMounts:
+            - name: models
+              mountPath: /models
+      volumes:
+        - name: models
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: helper-api
+  namespace: dify
+  labels:
+    app: helper-api
+spec:
+  # NodePort implicitly also exposes a ClusterIP, so the in-cluster DNS
+  # helper-api.dify.svc.cluster.local:8799 resolves inside the cluster.
+  type: NodePort
+  selector:
+    app: helper-api
+  ports:
+    - name: http
+      port: 8799
+      targetPort: 8799
+      nodePort: 30799
