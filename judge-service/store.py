@@ -33,6 +33,7 @@ class Store(Protocol):
     def is_holdout(self, example_id: str) -> bool: ...
     def get_holdout_ids(self) -> set[str]: ...
     def get_label(self, example_id: str) -> Any | None: ...
+    def get_tau(self, example_id: str) -> float | None: ...
 
     # --- metric definition (sole write-right = architect) ---
     def get_metric(self, team_id: str) -> tuple[str, dict[str, Any]] | None: ...
@@ -51,6 +52,8 @@ class InMemoryStore:
         # ground-truth labels, loaded externally (see bootstrap below)
         self._labels: dict[str, Any] = {}
         self._holdout_ids: set[str] = set()
+        # ground-truth individual treatment effects (causal metrics only)
+        self._taus: dict[str, float] = {}
         # active metric per team (set by architect via /define-metric)
         self._metrics: dict[str, tuple[str, dict[str, Any]]] = {}
 
@@ -109,6 +112,10 @@ class InMemoryStore:
         with self._lock:
             return self._labels.get(example_id)
 
+    def get_tau(self, example_id: str) -> float | None:
+        with self._lock:
+            return self._taus.get(example_id)
+
     # --- metric definition ---
     def get_metric(self, team_id: str) -> tuple[str, dict[str, Any]] | None:
         with self._lock:
@@ -119,16 +126,26 @@ class InMemoryStore:
             self._metrics[team_id] = (metric_name, dict(params))
 
     # --- bootstrap (called once at startup) ---
-    def load_dataset(self, labels: dict[str, Any]) -> None:
+    def load_dataset(
+        self,
+        labels: dict[str, Any],
+        taus: dict[str, float] | None = None,
+    ) -> None:
         """Load ground-truth labels and split into sandbox / holdout.
 
         This must be called before serving. In production, load from a file
         or DB -- never ship labels in the repo.
+
+        `taus`, if provided, maps example_id -> individual treatment effect
+        tau_i = Y_i(1) - Y_i(0). It powers the causal metrics pehe / ate_bias.
+        Causal metrics are inert (raise) unless taus are supplied -- we never
+        fabricate causal ground truth.
         """
         import random
 
         with self._lock:
             self._labels = dict(labels)
+            self._taus = dict(taus) if taus else {}
             all_ids = list(labels.keys())
             rng = random.Random(settings.holdout_seed)
             rng.shuffle(all_ids)

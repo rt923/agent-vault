@@ -245,7 +245,9 @@ def aggregate(
         for ex_id, pred in req.predictions.items()
         if not store.is_holdout(ex_id)
     }
-    agg, n = compute_aggregate(sandbox_preds, store.get_label, metric_fn, k)
+    agg, n = compute_aggregate(
+        sandbox_preds, store.get_label, metric_fn, k, tau_fn=store.get_tau
+    )
 
     return AggregateResponse(
         team_id=req.team_id,
@@ -279,7 +281,8 @@ def evaluate_holdout(
     }
     missing = [ex_id for ex_id in holdout_ids if ex_id not in req.predictions]
     holdout_score, _ = compute_aggregate(
-        holdout_preds, store.get_label, metric_fn, k, skip_missing_pred=False
+        holdout_preds, store.get_label, metric_fn, k,
+        skip_missing_pred=False, tau_fn=store.get_tau,
     )
 
     return EvaluateResponse(
@@ -301,8 +304,13 @@ def _bootstrap() -> None:
         _store = get_store()
 
     labels_path = os.getenv("JUDGE_LABELS_PATH", "")
+    taus_path = os.getenv("JUDGE_TAUS_PATH", "")
     if labels_path and os.path.exists(labels_path):
         with open(labels_path, "r", encoding="utf-8") as f:
             labels = json.load(f)
-        _store.load_dataset(labels)  # type: ignore[union-attr]
+        taus = None
+        if taus_path and os.path.exists(taus_path):
+            with open(taus_path, "r", encoding="utf-8") as f:
+                taus = json.load(f)
+        _store.load_dataset(labels, taus=taus)  # type: ignore[union-attr]
     # If no labels loaded, /submit returns 404 for everything (safe default).

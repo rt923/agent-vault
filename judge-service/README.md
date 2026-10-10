@@ -38,6 +38,7 @@ export JUDGE_DEFAULT_SUBMIT_BUDGET=200
 export JUDGE_HOLDOUT_FRACTION=0.3
 export JUDGE_HOLDOUT_SEED=42
 export JUDGE_LABELS_PATH="/path/to/labels.json"            # {"example_id": label, ...}，不入仓库
+export JUDGE_TAUS_PATH="/path/to/taus.json"               # 可选：{"example_id": tau_float}，仅 pehe/ate_bias 因果指标需要
 
 uvicorn team.dify.judge_service.main:app --host 0.0.0.0 --port 8787
 ```

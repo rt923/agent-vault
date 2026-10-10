@@ -38,7 +38,11 @@ class DefineMetricRequest(BaseModel):
     """
 
     team_id: str
-    metric_name: str = Field(..., description="e.g. 'accuracy', 'f1', 'mae'")
+    # v0.2: enum extended with causal metrics pehe / ate_bias.
+    # Mirrors scoring.SUPPORTED_METRICS and dify-dsl/judge-api.openapi.yaml.
+    metric_name: Literal["accuracy", "macro_f1", "pehe", "ate_bias"] = Field(
+        ..., description="sole external metric: accuracy | macro_f1 | pehe | ate_bias"
+    )
     params: dict[str, Any] = Field(default_factory=dict)
 
 

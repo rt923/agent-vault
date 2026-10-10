@@ -94,8 +94,8 @@ paths:
               required: [team_id, metric_name]
               properties:
                 team_id: { type: string }
-                metric_name: { type: string, enum: [accuracy, macro_f1] }
-                params: { type: object, description: 'e.g. {"k": 6} for macro_f1' }
+                metric_name: { type: string, enum: [accuracy, macro_f1, pehe, ate_bias] }
+                params: { type: object, description: 'e.g. {"k": 6} for macro_f1; pehe/ate_bias require causal tau (load via JUDGE_TAUS_PATH)' }
       responses:
         "200":
           description: 已激活
