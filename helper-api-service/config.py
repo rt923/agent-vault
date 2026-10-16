@@ -31,9 +31,14 @@ class Settings:
     models_dir: str = os.getenv("HELPER_MODELS_DIR", "/models")
 
     # --- Task kinds (declarative; OQ-1.1) ---
-    # v0.1 ships exactly one: intent_clf (BANKING77 proxy). Others -> 400.
-    supported_task_kinds: tuple[str, ...] = ("intent_clf",)
+    # v0.2 adds uplift_attribution (paper ch4 mainline: T-learner tau_hat +
+    # dual-level Shapley), data = synthetic generator seed=20240914 (step 0).
+    supported_task_kinds: tuple[str, ...] = ("intent_clf", "uplift_attribution")
     default_task_kind: str = os.getenv("HELPER_TASK_KIND", "intent_clf")
+
+    # --- Uplift (v0.2) ---
+    # §4.11 shared seed across uplift / two-tower / data gen.
+    uplift_seed: int = int(os.getenv("HELPER_UPLIFT_SEED", "20240914"))
 
     # --- Data adapter (OQ-1.2) ---
     # "dify" = Dify Dataset API (production); "local" = bundled offline fallback.

@@ -46,7 +46,14 @@ class TrainResponse(BaseModel):
 
 class InferInputItem(BaseModel):
     query_id: str = Field(..., description="Example id; aligns with judge example_id.")
-    text: str = Field(..., description="Raw utterance / query text.")
+    text: str | None = Field(
+        default=None,
+        description="Raw utterance (intent_clf). Required for classification runs.",
+    )
+    features: list[float] | None = Field(
+        default=None,
+        description="Feature vector (uplift_attribution, 10 floats). Required for uplift runs.",
+    )
 
 
 class InferRequest(BaseModel):
@@ -58,13 +65,55 @@ class InferRequest(BaseModel):
 
 class InferOutputItem(BaseModel):
     query_id: str
-    prediction: int  # integer class id (judge same-scale contract, OQ-2.2)
-    confidence: float
+    # v0.2: widened int -> float. Classification still emits integer class ids
+    # (JSON numbers); uplift emits tau_hat as a float (judge /submit takes Any).
+    prediction: float
+    confidence: float | None = None  # None for regression (uplift) runs
 
 
 class InferResponse(BaseModel):
     outputs: list[InferOutputItem]
     run_id: str
+
+
+# --- /shapley (v0.2 uplift_attribution, dual-level) ---
+
+
+class ShapleyRequest(BaseModel):
+    run_id: str | None = Field(
+        default=None, description="Uplift run id; None -> latest run."
+    )
+    level: Literal["feature", "store"] = Field(
+        ..., description="feature = 表4.3 (10 features); store = 表4.10 (6 stores)."
+    )
+    algorithm: Literal["exact", "monte_carlo"] = Field(
+        ...,
+        description=(
+            "Caller-explicit (paper L303 discloses the n>20 bottleneck but defines "
+            "NO auto-switch). exact: O(2^n), hard cap n<=20 -> 400 otherwise."
+        ),
+    )
+    n_permutations: int = Field(
+        default=100, ge=2, le=1000, description="monte_carlo only."
+    )
+    seed: int | None = Field(
+        default=None, description="MC sampling seed; None -> run's training seed."
+    )
+
+
+class ShapleyResponse(BaseModel):
+    run_id: str
+    level: str
+    algorithm: str
+    n_players: int
+    # feature level: per-feature mean phi (model side); store level: per-store phi
+    phi_means: dict[str, float]
+    # exact: ~machine epsilon; monte_carlo: permutation-order residual
+    efficiency_max_residual: float
+    sampling_variance: dict[str, float] | None = Field(
+        default=None, description="Per-player MC sampling variance (monte_carlo only)."
+    )
+    details: dict = Field(default_factory=dict)
 
 
 # --- /baselines ---
